@@ -1,23 +1,23 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <Wire.h>
+#include <avr/wdt.h> // Include the watchdog library
 
 // Declare Servos
 Servo shead;
 Servo sbody;
 
 // Declare Global Variables
-int body = 0, head = 0;
-int maxbody, maxhead;
+int body = 0, head = 50;
 byte deviceAddress = 0x10;
+unsigned int distance;
+unsigned int signalStrength;
 
 // Declare Flags
 bool headflag = true;
-bool scanning = false;
 
 // Declare Functions
-void scan(), hflag(), lidar();
-
+void scan(), hflag(), lidar(), printData();
 
 void setup() {
   sbody.attach(5);
@@ -25,7 +25,11 @@ void setup() {
 
   Wire.begin();
   Serial.begin(115200);
+  
+  shead.write(head);
 
+  // Enable the watchdog timer with a timeout of 2 seconds
+  wdt_enable(WDTO_1S);
 }
 
 void loop() {
@@ -38,13 +42,7 @@ void scan() {
 
   while ((direction == 1 && body < 180) || (direction == -1 && body > 0)) {
     lidar(); // Get Lidar data for each degree
-    delay(5);
     body = sbody.read();
-
-    Serial.print(body);
-    Serial.print(",");
-    Serial.print(head);
-    Serial.print(",");
 
     sbody.write(sbody.read() + direction);
     delay(5);
@@ -53,9 +51,7 @@ void scan() {
 }
 
 void hflag() {
-  headflag = (head == 0) ? true : ((head == 80) ? false : headflag);
-  // Headflag is the second argument so when head != maxhead, it still retains its false bool
-
+  headflag = (head == 50) ? true : ((head == 80) ? false : headflag);
   // Change writes angle to head
   int direction = (headflag == true) ? 10 : -10;
 
@@ -64,22 +60,38 @@ void hflag() {
 }
 
 void lidar() {
+  // Attempt to read Lidar data
   Wire.beginTransmission(deviceAddress); // The I2C data transmission starts
   Wire.write(0x00); // Send command
   Wire.endTransmission(); // The I2C data transfer is complete
 
   Wire.requestFrom((uint8_t)deviceAddress, (uint8_t)7); // Read 7 bytes of data
-  if (Wire.available() == 7) { // 7 bytes of data are available
+
+  // Check if data is available
+  if (Wire.available() == 7) {
     byte data[7];
     for (int i = 0; i < 7; i++) {
       data[i] = Wire.read(); // Read data into an array
     }
 
-    unsigned int distance = (data[1] << 8) | data[0];       // DistanceValue
-    unsigned int signalStrength = (data[3] << 8) | data[2]; // Signal strength
+    distance = (data[1] << 8) | data[0];       // DistanceValue
+    signalStrength = (data[3] << 8) | data[2]; // Signal strength
 
-    Serial.print(distance);
-    Serial.print(",");
-    Serial.println(signalStrength);
+    if (distance < 900) {
+      printData();
+    }
+  } else {
+    // If I2C communication fails, trigger watchdog timer reset
+    wdt_reset(); // Reset the watchdog timer
   }
+}
+
+void printData() {
+  Serial.print(body);
+  Serial.print(",");
+  Serial.print(head);
+  Serial.print(",");
+  Serial.print(distance);
+  Serial.print(",");
+  Serial.println(signalStrength);
 }

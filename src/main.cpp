@@ -2,82 +2,108 @@
 #include <Servo.h>
 #include <Wire.h>
 
-// Declare Servos
-Servo shead;
-Servo sbody;
+//Lidar Data Struct
+typedef struct {
+  int distance;
+  int strength;
+  int temp;
+  boolean receiveComplete;
+} TF;
 
-// Declare Global Variables
-int body = 0, head = 40;
-int maxbody, maxhead;
-byte deviceAddress = 0x10;
+TF Lidar = {0, 0, 0, false};
 
-// Declare Flags
-bool headflag = true;
-bool scanning = false;
+//Declare Servos
+Servo servoHead;
+Servo servoBody;
 
-// Declare Functions
-void scan(), hflag(), lidar();
+//Declare Variables
+int body = 0;
+int head = 40;
 
+//Declare Flags
+bool headFlag = true;
 
-void setup() {
-  sbody.attach(5);
-  shead.attach(3);
+//Declare Functions
+void getLidarData(TF* Lidar);
+void headMovement();
 
-  Wire.begin();
-  Serial.begin(115200);
+//Functions
+void headMovement(){
+  headFlag = (head == 40) ? true : ((head == 180) ? false : headFlag);
+ 
+  int direction = (headFlag == true) ? 10 : -10;
 
-}
-
-void loop() {
-  scan();
-}
-
-// Side-to-side Movement of Servos
-void scan() {
-  int direction = (body == 0) ? 1 : -1; // Ternary check
-
-  while ((direction == 1 && body < 180) || (direction == -1 && body > 0)) {
-    lidar(); // Get Lidar data for each degree
-    delay(5);
-    body = sbody.read();
-
-    sbody.write(sbody.read() + direction);
-  }
-  hflag();
-}
-
-void hflag() {
-  headflag = (head == 40) ? true : ((head == 80) ? false : headflag);
-  // Headflag is the second argument so when head != maxhead, it still retains its false bool
-
-  // Change writes angle to head
-  int direction = (headflag == true) ? 10 : -10;
-
-  shead.write(head);
+  servoHead.write(head);
   head += direction;
 }
 
-void lidar() {
-  Wire.beginTransmission(deviceAddress); // The I2C data transmission starts
-  Wire.write(0x00); // Send command
-  Wire.endTransmission(); // The I2C data transfer is complete
-
-  Wire.requestFrom((uint8_t)deviceAddress, (uint8_t)7); // Read 7 bytes of data
-  if (Wire.available() == 7) { // 7 bytes of data are available
-    byte data[7];
-    for (int i = 0; i < 7; i++) {
-      data[i] = Wire.read(); // Read data into an array
+void getLidarData(TF* lidar) 
+{
+  static char i = 0;
+  char j = 0;
+  int checksum = 0;
+  static int rx[9];
+  if (Serial.available()) 
+  {
+    rx[i] = Serial.read();
+    if (rx[0] != 0x59) 
+    {
+      i = 0;
+    } 
+    else if (i == 1 && rx[1] != 0x59) {
+      i = 0;
+    } 
+    else if (i == 8) 
+    {
+      for (j = 0; j < 8; j++) 
+      {
+        checksum += rx[j];
+      }
+      if (rx[8] == (checksum % 256)) 
+      {
+          lidar->distance = rx[2] + rx[3] * 256;
+          lidar->strength = rx[4] + rx[5] * 256;
+          lidar->temp = (rx[6] + rx[7] * 256) / 8 - 256;
+          lidar->receiveComplete = true;
+      }
+      i = 0;
+    } 
+    else 
+    {
+      i++;
     }
-
-    unsigned int distance = (data[1] << 8) | data[0];       // DistanceValue
-    unsigned int signalStrength = (data[3] << 8) | data[2]; // Signal strength
-
-    Serial.print(body);
-    Serial.print(",");
-    Serial.print(head);
-    Serial.print(",");
-    Serial.print(distance);
-    Serial.print(",");
-    Serial.println(signalStrength);
   }
+}
+
+void setup() {
+  Serial.begin(115200);
+  servoBody.attach(3);
+  servoHead.attach(5);
+}
+
+void loop() 
+{
+  int direction = (body == 0) ? 1 : -1; // Ternary check
+
+    while ((direction == 1 && body < 180) || (direction == -1 && body > 0)) {
+
+      getLidarData(&Lidar);       //Acquisition of radar data
+        if (Lidar.receiveComplete) 
+        {
+          Lidar.receiveComplete = false;
+          Serial.print(body);
+          Serial.print(",");
+          Serial.print(head);
+          Serial.print(",");
+          Serial.print(Lidar.distance);
+          Serial.println("cm\t");
+
+           body = servoBody.read();
+          servoBody.write(servoBody.read() + direction);
+          delayMicroseconds(500);
+        }
+
+    }
+    
+  headMovement();
 }

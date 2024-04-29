@@ -95,8 +95,7 @@ void loop()
           Serial.print(",");
           Serial.print(head);
           Serial.print(",");
-          Serial.print(Lidar.distance);
-          Serial.println("cm\t");
+          Serial.println(Lidar.distance);
 
            body = servoBody.read();
           servoBody.write(servoBody.read() + direction);
